@@ -1,5 +1,10 @@
-#qauntized decoder and sparsity schedule
+#model with only prunning
+#BASE - Keras
+#to have VAE-large change INTERMEDIATE_DIMS = [1500, 1000, 500, 100] and LATENT_DIM = 50
+##to have VAE-small change INTERMEDIATE_DIMS = [150, 120, 90, 60] and LATENT_DIM = 30
 
+import numpy as np
+import tensorflow as tf
 from keras import metrics
 from keras import backend as K
 from keras.models import Model
@@ -12,7 +17,6 @@ from keras.layers import (
     Multiply,
     Add,
     Concatenate,
-    Activation
 )
 
 from constants import (
@@ -21,17 +25,13 @@ from constants import (
     N_VOXELS_L2,
     N_VOXELS_L3,
     N_VOXELS_L12,
-    N_LAYERS,
+    N_LAYERS
 )
 
 # pruning
 import tensorflow_model_optimization as tfmot
 from tensorflow_model_optimization.sparsity.keras import prune_low_magnitude
 from tensorflow_model_optimization.python.core.sparsity.keras.pruning_schedule import ConstantSparsity
-#quantization
-from qkeras import QDense, quantized_bits, QActivation, QBatchNormalization
-from tensorflow.keras.layers import LeakyReLU
-
 
 
 class VAE:
@@ -49,7 +49,7 @@ class VAE:
         self.optimizer = kwargs.get("optimizer")
         self.w_reco = kwargs.get("w_reco")
         self.sparsity = kwargs.get("sparsity", 0.0)
-        self.bits = kwargs.get("bits",8) # adjusts kernel and activation bits
+        self.bits = kwargs.get("bits",8) #to be compatible with training that is designed for quantized model
 
         class KLDivergenceLayer(Layer):
             """Identity transform layer that adds KL divergence to the final model loss."""
@@ -94,116 +94,78 @@ class VAE:
         z = Add()([z_mu, z_eps])
         z_cond = Concatenate(axis=-1)([z, e_cond])
 
-        #  encoder
+        # public encoder
         self.encoder = Model(inputs=[x, e_cond, eps], outputs=z_cond)
 
-
         # -------------------
-        # Decoder / Generator 
+        # Decoder / Generator
         # -------------------
-  
-        # Quantization parameters for QDense
-        wk_bits = self.bits
-        wi_bits = 1
-        bk_bits = self.bits + 2
-        bi_bits = 2 
+        deco_l4 = Dense(self.intermediate_dim4, input_dim=(self.latent_dim + 1),
+                        activation=self.activation, kernel_initializer=self.kernel_initializer,
+                        bias_initializer=self.bias_initializer)
+        deco_l4_bn = BatchNormalization()
+        deco_l3 = Dense(self.intermediate_dim3, input_dim=self.intermediate_dim4,
+                        activation=self.activation, kernel_initializer=self.kernel_initializer,
+                        bias_initializer=self.bias_initializer)
+        deco_l3_bn = BatchNormalization()
+        deco_l2 = Dense(self.intermediate_dim2, input_dim=self.intermediate_dim3,
+                        activation=self.activation, kernel_initializer=self.kernel_initializer,
+                        bias_initializer=self.bias_initializer)
+        deco_l2_bn = BatchNormalization()
+        deco_l1 = Dense(self.intermediate_dim1, input_dim=self.intermediate_dim2,
+                        activation=self.activation, kernel_initializer=self.kernel_initializer,
+                        bias_initializer=self.bias_initializer)
+        deco_l1_bn = BatchNormalization()
+        deco_output = Dense(self.original_dim, activation=None) #None from self.activation
 
-        # QDense Trunk quantization
-        w_q   = quantized_bits(bits=wk_bits, integer=wi_bits, symmetric=1, alpha=1)
-        b_q   = quantized_bits(bits=bk_bits, integer=bi_bits, symmetric=1, alpha=1)
-        # QDense Head quantization
-        w_q_heads  = quantized_bits(bits=wk_bits,   integer=wi_bits, symmetric=1, alpha=1)
-        b_q_heads  = quantized_bits(bits=bk_bits,   integer=bi_bits, symmetric=1, alpha=1)
-        w_q_energy = quantized_bits(bits=wk_bits+2, integer=wi_bits+1, symmetric=1, alpha=1)
-        b_q_energy = quantized_bits(bits=bk_bits+2, integer=bi_bits, symmetric=1, alpha=1)
-
-        #QBatchNorm quantization
-        beta_q =  quantized_bits(bits=8, integer=3, symmetric=1, alpha=1)
-        gamma_q = quantized_bits(bits=8, integer=2, symmetric=1, alpha=1)
-        mean_q =  quantized_bits(bits=10, integer=4, symmetric=1, alpha=1)
-        var_q =   quantized_bits(bits=12, integer=6, symmetric=1, alpha=1)
-
-        leaky_slope = 0.25
-        def trunk_block(x, units, dense_name, bn_name, leaky_name):
-            x = QDense(
-                name = dense_name,
-                units=units,
-                kernel_initializer=self.kernel_initializer,
-                bias_initializer=self.bias_initializer,
-                kernel_quantizer=w_q,
-                bias_quantizer=b_q,
-                activation=None)(x)
-            x = QBatchNormalization(name=bn_name,
-                beta_quantizer=beta_q,
-                gamma_quantizer=gamma_q,
-                mean_quantizer=mean_q,
-                variance_quantizer=var_q)(x)
-            x = LeakyReLU(alpha=leaky_slope, name=leaky_name)(x)
-            return x
-
-
-        # Input
-        z_deco_input = Input(shape=(self.latent_dim + 1,), name="z_deco_input")
-
-        # Trunk
-        h4 = trunk_block(
-            x=z_deco_input,
-            units=self.intermediate_dim4,
-            dense_name="q_dense_0", bn_name="batch_normalization_D0", leaky_name="leaky_0",
-        )
-        h3 = trunk_block(
-            x=h4,
-            units=self.intermediate_dim3,
-            dense_name="q_dense_1", bn_name="batch_normalization_D1", leaky_name="leaky_1",
-        )
-        h2 = trunk_block(
-            x=h3,
-            units=self.intermediate_dim2,
-            dense_name="q_dense_2", bn_name="batch_normalization_D2", leaky_name="leaky_2",
-        )
-        h1 = trunk_block(
-            x=h2,
-            units=self.intermediate_dim1,
-            dense_name="q_dense_3", bn_name="batch_normalization_D3", leaky_name="leaky_3",
+        # training path: z_cond -> MLP -> per-branch heads -> concat
+        x_reco = deco_output(
+            deco_l1_bn(
+                deco_l1(
+                    deco_l2_bn(
+                        deco_l2(deco_l3_bn(deco_l3(deco_l4_bn(deco_l4(z_cond)))))
+                    )
+                )
+            )
         )
 
-        # Final trunk stays linear 
-        deco_output = QDense(
-            units=self.original_dim,
-            kernel_initializer=self.kernel_initializer,
-            bias_initializer=self.bias_initializer,
-            kernel_quantizer=w_q,
-            bias_quantizer=b_q,
-            activation=None,
-            name="q_dense_4",
+        # voxel heads (photons: L0, L1, L2, L3, L12)
+        nodes_l0  = Dense(N_VOXELS_L0,  activation="softmax")(x_reco)
+        nodes_l1  = Dense(N_VOXELS_L1,  activation="softmax")(x_reco)
+        nodes_l2  = Dense(N_VOXELS_L2,  activation="softmax")(x_reco)
+        nodes_l3  = Dense(N_VOXELS_L3,  activation="softmax")(x_reco)
+        nodes_l12 = Dense(N_VOXELS_L12, activation="softmax")(x_reco)
+        # Etot/Einc scalar and per-layer fractions
+        node_etot_etruth = Dense(1,        activation=self.activ_frac_etot_etruth)(x_reco)
+        node_layers_frac = Dense(N_LAYERS, activation="softmax")(x_reco)
+
+        x_reco_final = Concatenate(axis=-1)([
+            nodes_l0, nodes_l1, nodes_l2, nodes_l3, nodes_l12,
+            node_etot_etruth, node_layers_frac
+        ])
+
+        # inference decoder: input is (z, e_cond) concat from encoder
+        z_deco_input = Input(shape=(self.latent_dim + 1,))
+        x_reco_deco = deco_output(
+            deco_l1_bn(
+                deco_l1(
+                    deco_l2_bn(
+                        deco_l2(deco_l3_bn(deco_l3(deco_l4_bn(deco_l4(z_deco_input)))))
+                    )
+                )
+            )
         )
 
-        x_reco_deco = deco_output(h1)
+        nodes_l0_reco  = Dense(N_VOXELS_L0,  activation="softmax")(x_reco_deco)
+        nodes_l1_reco  = Dense(N_VOXELS_L1,  activation="softmax")(x_reco_deco)
+        nodes_l2_reco  = Dense(N_VOXELS_L2,  activation="softmax")(x_reco_deco)
+        nodes_l3_reco  = Dense(N_VOXELS_L3,  activation="softmax")(x_reco_deco)
+        nodes_l12_reco = Dense(N_VOXELS_L12, activation="softmax")(x_reco_deco)
 
-        # Heads/Branches
-        nodes_l0_reco  = Activation('softmax',name='activation_l0')(QDense(N_VOXELS_L0,  activation='linear',
-            kernel_initializer=self.kernel_initializer, bias_initializer=self.bias_initializer,
-            kernel_quantizer=w_q_heads, bias_quantizer=b_q_heads, name = 'q_dense_l0')(x_reco_deco))
-        nodes_l1_reco  = Activation('softmax',name='activation_l1')(QDense(N_VOXELS_L1,  activation='linear',
-            kernel_initializer=self.kernel_initializer, bias_initializer=self.bias_initializer,
-            kernel_quantizer=w_q_heads, bias_quantizer=b_q_heads, name = 'q_dense_l1')(x_reco_deco))
-        nodes_l2_reco  = Activation('softmax',name='activation_l2')(QDense(N_VOXELS_L2,  activation='linear',
-            kernel_initializer=self.kernel_initializer, bias_initializer=self.bias_initializer,
-            kernel_quantizer=w_q_heads, bias_quantizer=b_q_heads, name = 'q_dense_l2')(x_reco_deco))
-        nodes_l3_reco  = Activation('softmax',name='activation_l3')(QDense(N_VOXELS_L3,  activation='linear',
-            kernel_initializer=self.kernel_initializer, bias_initializer=self.bias_initializer,
-            kernel_quantizer=w_q_heads, bias_quantizer=b_q_heads, name = 'q_dense_l3')(x_reco_deco))
-        nodes_l12_reco = Activation('softmax',name='activation_l12')(QDense(N_VOXELS_L12, activation='linear',
-            kernel_initializer=self.kernel_initializer, bias_initializer=self.bias_initializer,
-            kernel_quantizer=w_q_heads, bias_quantizer=b_q_heads, name = 'q_dense_l12')(x_reco_deco))
+        node_etot_etruth_reco = Dense(1,        activation=self.activ_frac_etot_etruth)(x_reco_deco)
+        node_layers_frac_reco = Dense(N_LAYERS, activation="softmax")(x_reco_deco)
 
-        node_etot_etruth_reco = Dense(1, activation=self.activ_frac_etot_etruth,name = 'dense_etot')(x_reco_deco)
-
-        node_layers_frac_reco = Activation('softmax',name = 'activation_LFR')(QDense(N_LAYERS, activation='linear',
-            kernel_initializer=self.kernel_initializer, bias_initializer=self.bias_initializer,
-            kernel_quantizer=w_q_energy, bias_quantizer=b_q_energy, name = 'q_dense_LFR')(x_reco_deco))
-
-        # Concats
+        # pairwise merges (photons: L0, L1, L2, L3, L12 + Etot/Einc + layer fracs)
         c01      = Concatenate(axis=-1)([nodes_l0_reco, nodes_l1_reco])
         c23      = Concatenate(axis=-1)([nodes_l2_reco, nodes_l3_reco])
         c45      = Concatenate(axis=-1)([nodes_l12_reco, node_etot_etruth_reco])
@@ -211,8 +173,8 @@ class VAE:
         c012345  = Concatenate(axis=-1)([c0123, c45])
         x_reco_final_reco = Concatenate(axis=-1)([c012345, node_layers_frac_reco])
 
-        self.decoder = Model(inputs=[z_deco_input], outputs=[x_reco_final_reco])
 
+        self.decoder = Model(inputs=[z_deco_input], outputs=[x_reco_final_reco])
 
         # prune decoder only if requested
         if self.sparsity > 0:
@@ -220,11 +182,11 @@ class VAE:
             self.decoder = prune_low_magnitude(self.decoder, **pruning_params)
 
         # -------------------
-        # total VAE 
+        # VAE end-to-end
         # -------------------
         def vae_loss(g4_event, vae_event):
             return self.w_reco * K.sum(metrics.binary_crossentropy(g4_event, vae_event))
 
         self.vae = Model(inputs=[x, e_cond, eps],
                          outputs=[self.decoder(self.encoder([x, e_cond, eps]))])
-        self.vae.compile(optimizer=self.optimizer, loss=vae_loss, metrics=["mse","mae","binary_crossentropy"])
+        self.vae.compile(optimizer=self.optimizer, loss=vae_loss)
