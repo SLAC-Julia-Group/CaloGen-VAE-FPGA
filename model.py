@@ -118,31 +118,6 @@ class VAE:
         deco_l1_bn = BatchNormalization()
         deco_output = Dense(self.original_dim, activation=None) #None from self.activation
 
-        # training path: z_cond -> MLP -> per-branch heads -> concat
-        x_reco = deco_output(
-            deco_l1_bn(
-                deco_l1(
-                    deco_l2_bn(
-                        deco_l2(deco_l3_bn(deco_l3(deco_l4_bn(deco_l4(z_cond)))))
-                    )
-                )
-            )
-        )
-
-        # voxel heads (photons: L0, L1, L2, L3, L12)
-        nodes_l0  = Dense(N_VOXELS_L0,  activation="softmax")(x_reco)
-        nodes_l1  = Dense(N_VOXELS_L1,  activation="softmax")(x_reco)
-        nodes_l2  = Dense(N_VOXELS_L2,  activation="softmax")(x_reco)
-        nodes_l3  = Dense(N_VOXELS_L3,  activation="softmax")(x_reco)
-        nodes_l12 = Dense(N_VOXELS_L12, activation="softmax")(x_reco)
-        # Etot/Einc scalar and per-layer fractions
-        node_etot_etruth = Dense(1,        activation=self.activ_frac_etot_etruth)(x_reco)
-        node_layers_frac = Dense(N_LAYERS, activation="softmax")(x_reco)
-
-        x_reco_final = Concatenate(axis=-1)([
-            nodes_l0, nodes_l1, nodes_l2, nodes_l3, nodes_l12,
-            node_etot_etruth, node_layers_frac
-        ])
 
         # inference decoder: input is (z, e_cond) concat from encoder
         z_deco_input = Input(shape=(self.latent_dim + 1,))
