@@ -14,6 +14,9 @@ from constants import (
     ACTIVATION,
     ACTIVATION_ETOT_DIV_ETRUTH,
     GLOBAL_CHECKPOINT_DIR,
+    W_VOXELS,
+    W_RESPONSE,
+    W_LAYERS,
 )
 
 from tensorflow_model_optimization.sparsity.keras import strip_pruning
@@ -61,7 +64,9 @@ def main():
         activation=ACTIVATION,
         activ_frac_etot_etruth=ACTIVATION_ETOT_DIV_ETRUTH,
         optimizer=tf.optimizers.Adam(),
-        w_reco=ORIGINAL_DIM,
+        w_voxels=W_VOXELS,
+        w_response=W_RESPONSE,
+        w_layers=W_LAYERS,
         sparsity=sparsity,
         bits=bits
     )
@@ -97,14 +102,11 @@ def main():
     z = np.column_stack((z_n_gauss, np.log2(incident_energies) / np.log2(max_energy))) #now log scaled and normalized
     predicted_energies = vae.decoder.predict(z)
 
-    
-    #save 'z' and 'incident_energies' as the 'golden input/output' for the decoder as a single .h5
+    # Save 'z' and 'predicted_energies' as the 'golden input/output' for the decoder.
     golden_filename = f"{output_root}/golden-{check_dir}-V{version}-{epoch}.h5"
     with h5py.File(golden_filename, "w") as f:
         f.create_dataset("z",        data=z)
         f.create_dataset("energies", data=predicted_energies)
-    
-
 
     #---- rescaling for after hls4ml (and here to properly run eval) ---- needs process.py to run and GPU access
 

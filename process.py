@@ -8,6 +8,7 @@ from constants import (
     N_VOXELS_L3,
     N_VOXELS_L12,
     N_VOXELS,
+    N_LAYERS,
     ETOT_EINC_SCALE,
 )
 

@@ -25,7 +25,8 @@ from constants import (
     N_VOXELS_L2,
     N_VOXELS_L3,
     N_VOXELS_L12,
-    N_LAYERS
+    N_LAYERS,
+    N_VOXELS,
 )
 
 # pruning
@@ -47,7 +48,9 @@ class VAE:
         self.activation = kwargs.get("activation")
         self.activ_frac_etot_etruth = kwargs.get("activ_frac_etot_etruth")
         self.optimizer = kwargs.get("optimizer")
-        self.w_reco = kwargs.get("w_reco")
+        self.w_voxels = kwargs.get("w_voxels", 1)
+        self.w_response = kwargs.get("w_response", 50)
+        self.w_layers = kwargs.get("w_layers", 5)
         self.sparsity = kwargs.get("sparsity", 0.0)
         self.bits = kwargs.get("bits",8) #to be compatible with training that is designed for quantized model
 
@@ -137,7 +140,7 @@ class VAE:
         nodes_l3_reco  = Dense(N_VOXELS_L3,  activation="softmax")(x_reco_deco)
         nodes_l12_reco = Dense(N_VOXELS_L12, activation="softmax")(x_reco_deco)
 
-        node_etot_etruth_reco = Dense(1,        activation=self.activ_frac_etot_etruth)(x_reco_deco)
+        node_etot_etruth_reco = Dense(1, activation=self.activ_frac_etot_etruth)(x_reco_deco)
         node_layers_frac_reco = Dense(N_LAYERS, activation="softmax")(x_reco_deco)
 
         # pairwise merges (photons: L0, L1, L2, L3, L12 + Etot/Einc + layer fracs)
@@ -160,8 +163,45 @@ class VAE:
         # VAE end-to-end
         # -------------------
         def vae_loss(g4_event, vae_event):
-            return self.w_reco * K.sum(metrics.binary_crossentropy(g4_event, vae_event))
+            # Voxel ratios — BCE
+            voxels_true = g4_event[:, :N_VOXELS]
+            voxels_pred = vae_event[:, :N_VOXELS]
+            loss_voxels = K.sum(metrics.binary_crossentropy(voxels_true, voxels_pred), axis=-1)
+
+            # Response ratio — BCE on a single scalar (sigmoid output)
+            r_true = g4_event[:, N_VOXELS]
+            r_pred = vae_event[:, N_VOXELS]
+            loss_response = metrics.binary_crossentropy(r_true, r_pred)
+
+            # Layer fractions — BCE
+            layers_true = g4_event[:, N_VOXELS + 1:]
+            layers_pred = vae_event[:, N_VOXELS + 1:]
+            loss_layers = K.sum(metrics.binary_crossentropy(layers_true, layers_pred), axis=-1)
+
+            return (self.w_voxels * loss_voxels
+                    + self.w_response * loss_response
+                    + self.w_layers * loss_layers)
+
+        # --- metrics for monitoring each loss component (unweighted) ---
+        def loss_voxels_metric(g4_event, vae_event):
+            voxels_true = g4_event[:, :N_VOXELS]
+            voxels_pred = vae_event[:, :N_VOXELS]
+            return K.sum(metrics.binary_crossentropy(voxels_true, voxels_pred), axis=-1)
+
+        def loss_response_metric(g4_event, vae_event):
+            r_true = g4_event[:, N_VOXELS]
+            r_pred = vae_event[:, N_VOXELS]
+            return metrics.binary_crossentropy(r_true, r_pred)
+
+        def loss_layers_metric(g4_event, vae_event):
+            layers_true = g4_event[:, N_VOXELS + 1:]
+            layers_pred = vae_event[:, N_VOXELS + 1:]
+            return K.sum(metrics.binary_crossentropy(layers_true, layers_pred), axis=-1)
 
         self.vae = Model(inputs=[x, e_cond, eps],
                          outputs=[self.decoder(self.encoder([x, e_cond, eps]))])
-        self.vae.compile(optimizer=self.optimizer, loss=vae_loss)
+        self.vae.compile(
+            optimizer=self.optimizer,
+            loss=vae_loss,
+            metrics=[loss_voxels_metric, loss_response_metric, loss_layers_metric],
+        )

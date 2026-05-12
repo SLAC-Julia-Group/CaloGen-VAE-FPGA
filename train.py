@@ -26,6 +26,9 @@ from constants import (
     ACTIVATION_ETOT_DIV_ETRUTH,
     GLOBAL_CHECKPOINT_DIR,
     PATIENCE,
+    W_VOXELS,
+    W_RESPONSE,
+    W_LAYERS,
 )
 
 # imports for pruning
@@ -101,7 +104,9 @@ def main():
             activation=ACTIVATION,
             activ_frac_etot_etruth=ACTIVATION_ETOT_DIV_ETRUTH,
             optimizer=tf.optimizers.Adam(LEARNIN_RATES[test_version]),
-            w_reco=ORIGINAL_DIM,
+            w_voxels=W_VOXELS,
+            w_response=W_RESPONSE,
+            w_layers=W_LAYERS,
             sparsity=sparsity,
             bits=bits
         )
