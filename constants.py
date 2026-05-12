@@ -75,6 +75,6 @@ PATIENCE = 10
 """
 Reconstruction loss weights
 """
-W_VOXELS = 1      # voxel-ratio BCE term (summed over 368 voxels ~ 20+ unweighted)
-W_RESPONSE = 10   # response BCE term (single scalar ~ 0.5–1 unweighted; boost to compete)
-W_LAYERS = 5     # layer-fraction BCE term (5 outputs, summed)
+W_VOXELS = 374      # voxel-ratio BCE term (summed over 368 voxels ~ 20+ unweighted)
+W_RESPONSE = 374   # response BCE term (single scalar ~ 0.5–1 unweighted; boost to compete)
+W_LAYERS = 374     # layer-fraction BCE term (5 outputs, summed)
