@@ -9,7 +9,18 @@ from constants import (
     N_VOXELS_L12,
     N_VOXELS,
     ETOT_EINC_SCALE,
+    N_ENERGY_BINS,
+    E_INC_LOG2_MIN,
 )
+
+
+def energy_to_onehot(incident_energies):
+    """Map each incident energy (MeV) to a 15-D one-hot over the discrete bins 2^8..2^22 MeV."""
+    idx = np.rint(np.log2(np.asarray(incident_energies).flatten()) - E_INC_LOG2_MIN).astype(int)
+    idx = np.clip(idx, 0, N_ENERGY_BINS - 1)
+    onehot = np.zeros((len(idx), N_ENERGY_BINS), dtype=np.float32)
+    onehot[np.arange(len(idx)), idx] = 1.0
+    return onehot
 
 
 def preprocess(file_name):
@@ -78,7 +89,11 @@ def preprocess(file_name):
         training_condition.append(np.log2(incident_energies[event]) / np.log2(max_energy)) #APPLIED log scaling so training energies are linear
 
     training_data = np.array(training_data)        # (n, 368 + 1 + 5) = (n, 374)
-    training_condition = np.array(training_condition)
+
+    # Build augmented condition: [scalar, one-hot] -> (n, 16)
+    training_condition_scalar = np.array(training_condition, dtype=np.float32).reshape(-1, 1)
+    training_condition_onehot = energy_to_onehot(incident_energies)
+    training_condition = np.hstack([training_condition_scalar, training_condition_onehot]).astype(np.float32)
 
     # close file and clean up
     h5_file.close()

@@ -10,7 +10,7 @@ import tensorflow as tf
 from tensorflow_model_optimization.sparsity.keras import strip_pruning
 
 from model import VAE
-from process import load_incident_energies
+from process import load_incident_energies, energy_to_onehot
 from constants import (
     ORIGINAL_DIM, INTERMEDIATE_DIMS, LATENT_DIM,
     KERNEL_INITIALIZER, BIAS_INITIALIZER, ACTIVATION,
@@ -73,7 +73,9 @@ def main():
             for _ in range(repeats):
                 t0 = time.perf_counter()
                 z_n_gauss = np.random.normal(loc=0, scale=1, size=(len(incident_energies), LATENT_DIM))
-                z = np.column_stack((z_n_gauss, np.log2(incident_energies) / np.log2(max_energy))).astype(np.float32)
+                scalar_cond = (np.log2(incident_energies) / np.log2(max_energy)).reshape(-1, 1)
+                onehot_cond = energy_to_onehot(incident_energies)
+                z = np.column_stack([z_n_gauss, scalar_cond, onehot_cond]).astype(np.float32)
                 zN = z[:N].astype(np.float32)
                 _  = decoder.predict(zN, batch_size=bs, verbose=0)
                 t1 = time.perf_counter()

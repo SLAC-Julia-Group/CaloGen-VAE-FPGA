@@ -55,6 +55,12 @@ ORIGINAL_DIM = N_VOXELS + 1 + N_LAYERS
 #manual scaling: zeta
 ETOT_EINC_SCALE = 1.6
 
+# One-hot encoding of the 15 discrete incident energies (2^8 ... 2^22 MeV)
+N_ENERGY_BINS = 15
+E_INC_LOG2_MIN = 8     # 256 MeV = 2^8
+E_INC_LOG2_MAX = 22    # 4 TeV = 2^22
+COND_DIM = 1 + N_ENERGY_BINS   # scalar + one-hot = 16
+
 
 """
 Model & training parameters

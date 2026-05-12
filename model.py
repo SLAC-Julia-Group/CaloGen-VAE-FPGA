@@ -25,7 +25,8 @@ from constants import (
     N_VOXELS_L2,
     N_VOXELS_L3,
     N_VOXELS_L12,
-    N_LAYERS
+    N_LAYERS,
+    COND_DIM,
 )
 
 # pruning
@@ -67,7 +68,7 @@ class VAE:
         # Encoder
         # -------------------
         x = Input(shape=(self.original_dim,))
-        e_cond = Input(shape=(1,))
+        e_cond = Input(shape=(COND_DIM,))
         merged_input = Concatenate(axis=-1)([x, e_cond])
 
         h1 = Dense(self.intermediate_dim1, activation=self.activation,
@@ -100,7 +101,7 @@ class VAE:
         # -------------------
         # Decoder / Generator
         # -------------------
-        deco_l4 = Dense(self.intermediate_dim4, input_dim=(self.latent_dim + 1),
+        deco_l4 = Dense(self.intermediate_dim4, input_dim=(self.latent_dim + COND_DIM),
                         activation=self.activation, kernel_initializer=self.kernel_initializer,
                         bias_initializer=self.bias_initializer)
         deco_l4_bn = BatchNormalization()
@@ -120,7 +121,7 @@ class VAE:
 
 
         # inference decoder: input is (z, e_cond) concat from encoder
-        z_deco_input = Input(shape=(self.latent_dim + 1,))
+        z_deco_input = Input(shape=(self.latent_dim + COND_DIM,))
         x_reco_deco = deco_output(
             deco_l1_bn(
                 deco_l1(

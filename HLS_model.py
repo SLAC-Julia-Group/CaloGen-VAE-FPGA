@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 import os
 from model import VAE
-from process import postprocess, load_incident_energies
+from process import postprocess, load_incident_energies, energy_to_onehot
 from constants import (
     ORIGINAL_DIM,
     INTERMEDIATE_DIMS,
@@ -94,7 +94,9 @@ def main():
     incident_energies, max_energy = load_incident_energies(file_name)
     z_n_gauss = np.random.normal(loc=0, scale=1, size=(len(incident_energies), LATENT_DIM))
 
-    z = np.column_stack((z_n_gauss, np.log2(incident_energies) / np.log2(max_energy))) #now log scaled and normalized
+    scalar_cond = (np.log2(incident_energies) / np.log2(max_energy)).reshape(-1, 1)
+    onehot_cond = energy_to_onehot(incident_energies)
+    z = np.column_stack([z_n_gauss, scalar_cond, onehot_cond])
     predicted_energies = vae.decoder.predict(z)
 
     
