@@ -26,6 +26,7 @@ from constants import (
     ACTIVATION_ETOT_DIV_ETRUTH,
     GLOBAL_CHECKPOINT_DIR,
     PATIENCE,
+    BETAS,
 )
 
 # imports for pruning
@@ -146,6 +147,8 @@ def main():
         UpdatePruningStep(),
         PruningSummaries(log_dir=os.path.join(checkpoint_root, 'pruning')),
         ]
+
+        vae.beta.assign(BETAS[test_version])
 
         # Train the VAE model
         noise = np.random.normal(0, 1, size=(energies_train.shape[0], LATENT_DIM))

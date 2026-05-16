@@ -77,3 +77,9 @@ VALIDATION_SPLIT = 0.15
 EPOCHS = 100000
 # Number of epochs with no improvement after which training will be stopped
 PATIENCE = 10
+
+# Monotonic beta schedule, one value per training stage (8 stages total).
+# Stages 0-1: pure reconstruction warmup (beta=0)
+# Stages 2-4: linear ramp up
+# Stages 5-7: hold at full beta
+BETAS = [0.0, 0.0, 0.25, 0.5, 1.0, 1.0, 1.0, 1.0]

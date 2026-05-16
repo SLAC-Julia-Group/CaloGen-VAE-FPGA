@@ -52,17 +52,25 @@ class VAE:
         self.sparsity = kwargs.get("sparsity", 0.0)
         self.bits = kwargs.get("bits",8) #to be compatible with training that is designed for quantized model
 
+        self.beta = tf.Variable(0.0, trainable=False, dtype=tf.float32, name="kl_beta")
+
         class KLDivergenceLayer(Layer):
             """Identity transform layer that adds KL divergence to the final model loss."""
-            def __init__(self, *args, **kwargs):
+            def __init__(self, beta, *args, **kwargs):
                 self.is_placeholder = True
                 super(KLDivergenceLayer, self).__init__(*args, **kwargs)
+                self.beta = beta
 
             def call(self, inputs):
                 mu, log_var = inputs
                 kl_batch = -0.5 * K.sum(1 + log_var - K.square(mu) - K.exp(log_var), axis=-1)
-                self.add_loss(K.mean(kl_batch), inputs=inputs)
+                self.add_loss(self.beta * K.mean(kl_batch), inputs=inputs)
                 return inputs
+
+            def get_config(self):
+                config = super().get_config()
+                config.update({"beta": self.beta})
+                return config
 
         # -------------------
         # Encoder
@@ -86,7 +94,7 @@ class VAE:
 
         z_mu = Dense(self.latent_dim)(h)
         z_log_var = Dense(self.latent_dim)(h)
-        z_mu, z_log_var = KLDivergenceLayer()([z_mu, z_log_var])
+        z_mu, z_log_var = KLDivergenceLayer(self.beta)([z_mu, z_log_var])
 
         z_sigma = Lambda(lambda t: K.exp(0.5 * t))(z_log_var)
         # feed noise from train.py
