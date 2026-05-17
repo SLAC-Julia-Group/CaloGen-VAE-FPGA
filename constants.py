@@ -86,3 +86,5 @@ PATIENCE = 30
 BETAS_MIN = [0.0, 0.0, 0.0, 0.1, 0.25, 0.4, 0.6, 0.8]   # rising troughs
 BETAS_MAX = [0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0, 1.0]
 BETA_PERIOD = 20
+
+BETAS = [0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0, 1.0] #sam as max betas for analysis
