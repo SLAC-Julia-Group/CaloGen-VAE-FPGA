@@ -76,10 +76,13 @@ LEARNIN_RATES = [0.01, 0.001, 0.001, 0.0001, 0.00001, 0.000001, 0.0000001, 0.000
 VALIDATION_SPLIT = 0.15
 EPOCHS = 100000
 # Number of epochs with no improvement after which training will be stopped
-PATIENCE = 10
+#PATIENCE = 10
 
-# Monotonic beta schedule, one value per training stage (8 stages total).
-# Stages 0-1: pure reconstruction warmup (beta=0)
-# Stages 2-4: linear ramp up
-# Stages 5-7: hold at full beta
-BETAS = [0.0, 0.0, 0.25, 0.5, 1.0, 1.0, 1.0, 1.0]
+# Cosine oscillating beta schedule, one entry per stage 
+# BETAS_MAX : peak KL weight reached at each half-cycle
+# BETAS_MIN : min KL weight (bottom of each oscillation)
+# BETA_PERIOD: epochs for one full cosine cycle (min, max, min)
+PATIENCE = 30
+BETAS_MIN = [0.0, 0.0, 0.0, 0.1, 0.25, 0.4, 0.6, 0.8]   # rising troughs
+BETAS_MAX = [0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0, 1.0]
+BETA_PERIOD = 20

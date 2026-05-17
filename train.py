@@ -26,7 +26,9 @@ from constants import (
     ACTIVATION_ETOT_DIV_ETRUTH,
     GLOBAL_CHECKPOINT_DIR,
     PATIENCE,
-    BETAS,
+    BETAS_MAX,
+    BETAS_MIN,
+    BETA_PERIOD,
 )
 
 # imports for pruning
@@ -38,6 +40,25 @@ from tensorflow_model_optimization.sparsity.keras import (
     PruningSummaries,
     )
 from tensorflow_model_optimization.python.core.sparsity.keras.pruning_schedule import ConstantSparsity
+
+
+class BetaCosineCallback(keras.callbacks.Callback):
+    """Updates vae.beta each epoch following a cosine oscillation."""
+    def __init__(self, beta_var, beta_min, beta_max, period):
+        super().__init__()
+        self.beta_var = beta_var
+        self.beta_min = beta_min
+        self.beta_max = beta_max
+        self.period   = period
+
+    def on_epoch_begin(self, epoch, logs=None):
+        import math
+        t    = epoch % self.period
+        beta = self.beta_min + 0.5 * (self.beta_max - self.beta_min) * (
+            1 - math.cos(math.pi * t / (self.period / 2))
+        )
+        self.beta_var.assign(beta)
+
 
 def parse_args():
     argument_parser = ArgumentParser()
@@ -141,14 +162,20 @@ def main():
         )
 
         
-        callbacks = [
-        callback_checkpoint,
-        callback_early_stopping,
-        UpdatePruningStep(),
-        PruningSummaries(log_dir=os.path.join(checkpoint_root, 'pruning')),
-        ]
+        callback_beta = BetaCosineCallback(
+            beta_var=vae.beta,
+            beta_min=BETAS_MIN[test_version],
+            beta_max=BETAS_MAX[test_version],
+            period=BETA_PERIOD,
+        )
 
-        vae.beta.assign(BETAS[test_version])
+        callbacks = [
+            callback_checkpoint,
+            callback_early_stopping,
+            callback_beta,
+            UpdatePruningStep(),
+            PruningSummaries(log_dir=os.path.join(checkpoint_root, 'pruning')),
+        ]
 
         # Train the VAE model
         noise = np.random.normal(0, 1, size=(energies_train.shape[0], LATENT_DIM))
